@@ -1,0 +1,10 @@
+.DS_Store
+result.txt
+*.pyc
+
+.idea/
+venv/
+*.db
+*.csv
+*.txt
+rsconnect-python/
