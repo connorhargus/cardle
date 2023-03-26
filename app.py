@@ -22,7 +22,8 @@ app_ui = ui.page_fluid(
             ),
             ui.p("""You can get your Kindle's 
                     vocab.db by connecting it to your computer and searching in the file system. Translations
-                    use Google Translate, and will take some time if you have a large vocabulary."""
+                    of the source text to your native language use Google Translate, and will take some time
+                    if you have a large vocabulary or if a lot of people are using the site."""
             ),
             ui.p("""If this helps you, please consider buying me a coffee so I will be
                     motivated to keep the site up and running :)   - Connor"""
@@ -49,9 +50,10 @@ app_ui = ui.page_fluid(
                             ui.input_checkbox("italic_translated_usage", "Italic translated sentence", False),
                         ),
                         ui.column(6,
-                            ui.input_selectize("col_delimiter", "Column delimiter", ['\\t', '\\n', ';']),
-                            ui.input_text("row_delimiter", "Line delimiter", r'\n\n'),
-                            ui.input_numeric("max_usage_length", "Max sentence characters", 250),
+                            ui.input_selectize("native_language", "Translate to:", GoogleTranslator().get_supported_languages(), selected='english'),
+                            ui.input_selectize("col_delimiter", "Column delimiter:", ['\\t', '\\n', ';']),
+                            ui.input_text("row_delimiter", "Line delimiter:", r'\n\n'),
+                            ui.input_numeric("max_usage_length", "Max sentence characters:", 250),
                         ),
                     ),
                     ui.input_file("file1", "Choose a file to upload:", multiple=True),
@@ -60,16 +62,19 @@ app_ui = ui.page_fluid(
             ),
         ),
     ),
+    ui.output_ui("output_header"),
     ui.output_text_verbatim("output_text"),
 )
 
 
 def server(input, output, session):
     max_size = 50000000  # 50 MB max size for uploaded database
-    # Language you wish to translate to (probably your native language), default: English
-    to_lang = 'en'
-
     output_str = reactive.Value('')
+
+    @output
+    @render.text
+    def output_header():
+        return ui.h5('', 'Output:') if len(output_str()) > 0 else None
 
     @output
     @render.text
@@ -115,7 +120,7 @@ def server(input, output, session):
         vocab = vocab.drop_duplicates(subset=['word'], keep='first')
 
         # vocab = vocab[vocab['lookups'] > 1]  # Keep only words which have been looked up more than once
-        # vocab = vocab[:50]  # Shrink the dataframe when debugging this code to avoid unnecessary translate API calls.
+        vocab = vocab[:50]  # Shrink the dataframe when debugging this code to avoid unnecessary translate API calls.
 
         vocab = vocab.reset_index(drop=True)
 
@@ -124,41 +129,35 @@ def server(input, output, session):
                 p.set(message="Translation in progress", detail="Contacting Google Translate...")
 
                 # Function to apply to word and usage columns in dataframe to translate to to_lang via Google Translate
-                def translate_(i, row, key):
-                    to_trans = '\"' + row[key][0:20] + ('...' if len(row[key]) > 20 else '') + '\"'
+                def translate_(i, row, key, to_lang):
                     translator = GoogleTranslator(source=row['from_lang'], target=to_lang)
                     result = translator.translate(str(row[key]))
                     return result
 
-                def thread_translate_(vocab, key):
+                def thread_translate_(vocab, key, to_lang):
                     with concurrent.futures.ThreadPoolExecutor() as executor:
-                        results = [executor.submit(translate_, i, row, key) for i, row in vocab.iterrows()]
+                        results = [executor.submit(translate_, i, row, key, to_lang) for i, row in vocab.iterrows()]
                         i = 0
                         for result in concurrent.futures.as_completed(results):
                             i += 1
                             message = f"Translation in progress"
-                            if result.exception():
-                                modal = ui.modal(
-                                    result.exception(),
-                                    title="An error occurred during translation 😢. Please try again later.",
-                                    easy_close=True,
-                                    footer=None,
-                                )
-                                ui.modal_show(modal)
-                                return
                             p.set(i, message=result.result(), detail=message)
-                        return [result.result() for result in results]
+                        return results
 
                 start = time.perf_counter()
 
+                to_lang = GoogleTranslator().get_supported_languages(as_dict=True)[input.native_language()]
                 # Perform translations (English: en, Chinese: zh, Portuguese: pt)
                 if input.word_translate():
-                    vocab['word_translated'] = thread_translate_(vocab, 'word')
+                    results = thread_translate_(vocab, 'word', to_lang)
+                    vocab['word_translated'] = [result.result() for result in results]
+
                 if input.word_translate():
-                    vocab['usage_translated'] = thread_translate_(vocab, 'usage')
+                    results = thread_translate_(vocab, 'usage', to_lang)
+                    vocab['usage_translated'] = [result.result() for result in results]
 
                 finish = time.perf_counter()
-                # print(f'Finished in {finish - start} second(s)')
+                print(f'Finished in {finish - start} second(s)')
 
         vocab['word'] = vocab['word'].str.lower()
         if input.bold_word():
