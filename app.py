@@ -11,7 +11,7 @@ from shiny import App, reactive, render, ui
 
 
 app_ui = ui.page_fluid(
-    ui.panel_title('Kindle Vocab to Flashcard Generator'),
+    ui.panel_title('Kindle Vocabulary Flashcard Generator'),
     ui.layout_sidebar(
         ui.panel_sidebar(
             ui.p("""Upload your Kindle's vocab.db file and convert your searched words 
