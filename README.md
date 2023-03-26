@@ -1,5 +1,5 @@
 # cardle
-A site for generating flash cards from Kindle vocabulary for import to a spaced repetition app.
+A [site](https://connorhargus.shinyapps.io/cardle/) for generating flash cards from Kindle vocabulary for import to a spaced repetition app.
 
 ![Screenshot](docs/site.png)
 
