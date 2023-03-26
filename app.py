@@ -1,9 +1,11 @@
 import ast
 from collections import Counter
+import concurrent.futures
 import csv
 from pathlib import Path
 import shlex
 import sqlite3
+import time
 
 from deep_translator import GoogleTranslator
 import pandas as pd
@@ -63,7 +65,7 @@ app_ui = ui.page_fluid(
 
 
 def server(input, output, session):
-    MAX_SIZE = 50000000  # 50 MB max size for uploaded database
+    max_size = 50000000  # 50 MB max size for uploaded database
     # Language you wish to translate to (probably your native language), default: English
     to_lang = 'en'
 
@@ -81,14 +83,14 @@ def server(input, output, session):
         if not file_info:
             return
 
-        if file_info[0]["size"] > MAX_SIZE:
-            m = ui.modal(
-                "This file is too large. You must be learning a lot of vocab!",
-                title="Somewhat important message",
+        if file_info[0]["size"] > max_size:
+            modal = ui.modal(
+                "This file is too large (>100MB). You must be reading a lot!",
+                title="Conversion failed 😢",
                 easy_close=True,
                 footer=None,
             )
-            ui.modal_show(m)
+            ui.modal_show(modal)
             return
 
         datapath = file_info[0]["datapath"]
@@ -113,27 +115,50 @@ def server(input, output, session):
         vocab = vocab.drop_duplicates(subset=['word'], keep='first')
 
         # vocab = vocab[vocab['lookups'] > 1]  # Keep only words which have been looked up more than once
-        # vocab = vocab[:5]  # Shrink the dataframe when debugging this code to avoid unnecessary translate API calls.
+        # vocab = vocab[:50]  # Shrink the dataframe when debugging this code to avoid unnecessary translate API calls.
 
         vocab = vocab.reset_index(drop=True)
 
         if input.word_translate() or input.usage_translate():
             with ui.Progress(min=1, max=len(vocab)) as p:
                 p.set(message="Translation in progress", detail="Contacting Google Translate...")
+
                 # Function to apply to word and usage columns in dataframe to translate to to_lang via Google Translate
-                def translate_(row, key):
-                    translated = row.name
+                def translate_(i, row, key):
                     to_trans = '\"' + row[key][0:20] + ('...' if len(row[key]) > 20 else '') + '\"'
-                    message = f"Translation of {key} in progress"
-                    p.set(translated, message=to_trans, detail=message)
                     translator = GoogleTranslator(source=row['from_lang'], target=to_lang)
-                    return translator.translate(str(row[key]))
+                    result = translator.translate(str(row[key]))
+                    return result
+
+                def thread_translate_(vocab, key):
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        results = [executor.submit(translate_, i, row, key) for i, row in vocab.iterrows()]
+                        i = 0
+                        for result in concurrent.futures.as_completed(results):
+                            i += 1
+                            message = f"Translation in progress"
+                            if result.exception():
+                                modal = ui.modal(
+                                    result.exception(),
+                                    title="An error occurred during translation 😢. Please try again later.",
+                                    easy_close=True,
+                                    footer=None,
+                                )
+                                ui.modal_show(modal)
+                                return
+                            p.set(i, message=result.result(), detail=message)
+                        return [result.result() for result in results]
+
+                start = time.perf_counter()
 
                 # Perform translations (English: en, Chinese: zh, Portuguese: pt)
                 if input.word_translate():
-                    vocab['word_translated'] = vocab.apply(translate_, key='word', axis=1)
-                if input.usage_translate():
-                    vocab['usage_translated'] = vocab.apply(translate_, key='usage', axis=1)
+                    vocab['word_translated'] = thread_translate_(vocab, 'word')
+                if input.word_translate():
+                    vocab['usage_translated'] = thread_translate_(vocab, 'usage')
+
+                finish = time.perf_counter()
+                # print(f'Finished in {finish - start} second(s)')
 
         vocab['word'] = vocab['word'].str.lower()
         if input.bold_word():
