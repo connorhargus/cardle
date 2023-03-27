@@ -120,7 +120,7 @@ def server(input, output, session):
         vocab = vocab.drop_duplicates(subset=['word'], keep='first')
 
         # vocab = vocab[vocab['lookups'] > 1]  # Keep only words which have been looked up more than once
-        vocab = vocab[:50]  # Shrink the dataframe when debugging this code to avoid unnecessary translate API calls.
+        # vocab = vocab[:50]  # Shrink the dataframe when debugging this code to avoid unnecessary translate API calls.
 
         vocab = vocab.reset_index(drop=True)
 
