@@ -130,7 +130,7 @@ def server(input, output, session):
         vocab = vocab.drop_duplicates(subset=['word'], keep='first')
 
         # vocab = vocab[vocab['lookups'] > 1]  # Keep only words which have been looked up more than once
-        # vocab = vocab[:50]  # Shrink the dataframe when debugging this code to avoid unnecessary translate API calls.
+        # vocab = vocab[:500]  # Shrink the dataframe when debugging this code to avoid unnecessary translate API calls.
 
         vocab = vocab.reset_index(drop=True)
 
@@ -173,11 +173,13 @@ def server(input, output, session):
         italic = ('*', '*') if not input.html_newlines() else ('<em>', '</em>')
         bold = ('**', '**') if not input.html_newlines() else ('<b>', '</b>')
 
+        # Make cloze usages by filling in word with blanks
+        vocab['usage'] = vocab.apply(lambda x: x['usage'].replace(x['word'], '_____'), axis=1)
+
         vocab['word'] = vocab['word'].str.lower()
         if input.bold_word():
             vocab['word'] = bold[0] + vocab['word'].str.lower() + bold[1]
 
-        vocab['usage'] = vocab.apply(lambda x: x['usage'].replace(x['word'], '_____'), axis=1)
         vocab['usage'] = vocab['usage'].str.rstrip()
         if input.bold_usage():
             vocab['usage'] = bold[0] + vocab['usage'] + bold[1]
